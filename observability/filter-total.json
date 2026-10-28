@@ -1,0 +1,8 @@
+{
+  "logGroupName": "/cloudmart/product-service",
+  "filterName": "product-requests-total",
+  "filterPattern": "{ $.log = \"*REQUEST method=*\" }",
+  "metricTransformations": [
+    { "metricName": "RequestCount", "metricNamespace": "CloudMart/ProductService", "metricValue": "1", "defaultValue": 0 }
+  ]
+}

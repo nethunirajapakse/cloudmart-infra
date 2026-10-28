@@ -1,0 +1,70 @@
+name: Infra CI - Validate Terraform & Kubernetes
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: 1.14.2
+  KUSTOMIZE_VERSION: v5.4.3
+  KUBECONFORM_VERSION: v0.6.7
+
+jobs:
+  terraform:
+    name: Terraform fmt & validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned binary download instead of a third-party action (supply-chain hygiene).
+      - name: Install Terraform (pinned)
+        run: |
+          curl -sSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" -o terraform.zip
+          unzip -q terraform.zip terraform
+          sudo install -m 0755 terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: terraform fmt (check only)
+        run: terraform fmt -check -recursive -diff infra/
+
+      # -backend=false: validate syntax and references without touching remote state or AWS.
+      - name: terraform validate
+        run: |
+          for dir in infra/bootstrap infra/environments/prod infra/environments/staging; do
+            echo "::group::validate $dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
+
+  kubernetes:
+    name: Kustomize build & kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kustomize & kubeconform (pinned)
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o kustomize.tgz
+          tar xzf kustomize.tgz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tgz
+          tar xzf kubeconform.tgz kubeconform
+          sudo install -m 0755 kubeconform /usr/local/bin/kubeconform
+          kustomize version
+          kubeconform -v
+
+      # CRDs (ExternalSecret/SecretStore) have no schema here, hence -ignore-missing-schemas.
+      - name: Render and validate overlays
+        run: |
+          for overlay in prod staging; do
+            echo "::group::k8s/overlays/$overlay"
+            kustomize build "k8s/overlays/$overlay" | kubeconform -summary -strict -ignore-missing-schemas
+            echo "::endgroup::"
+          done

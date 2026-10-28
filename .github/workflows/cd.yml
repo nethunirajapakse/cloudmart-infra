@@ -1,0 +1,157 @@
+name: CD - Deploy to EKS
+
+# Deploys the manifests in this repo. Application images are built, scanned and pushed
+# by the app repo's CI; pass the tag to deploy with the image_tag input (defaults to latest).
+#   develop -> cloudmart-staging, main -> cloudmart-prod (manual approval via the "production" environment)
+on:
+  push:
+    branches: [develop, main]
+    paths: ['k8s/**', '.github/workflows/cd.yml']
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag (commit SHA from the app repo) to deploy'
+        required: false
+        default: 'latest'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  # Set AWS_ACCOUNT_ID under Settings > Secrets and variables > Actions > Variables
+  AWS_DEPLOY_ROLE_ARN: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/cloudmart-github-deploy
+  EKS_CLUSTER_NAME: cloudmart-prod
+  ECR_REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+  KUBECTL_VERSION: v1.30.5
+  KUSTOMIZE_VERSION: v5.4.3
+jobs:
+  staging:
+    name: Deploy to staging
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    env:
+      NAMESPACE: cloudmart-staging
+      OVERLAY: k8s/overlays/staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl & kustomize (pinned)
+        run: |
+          curl -sSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o kubectl
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o kustomize.tgz
+          tar xzf kustomize.tgz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          kubectl version --client
+          kustomize version
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+
+      # Pin the image tag built/scanned/pushed by the app repo's CI, so apply produces one real rollout.
+      - name: Pin image tags
+        run: |
+          cd "${OVERLAY}"
+          for s in frontend product-service order-service user-service notification-service; do
+            kustomize edit set image "${ECR_REGISTRY}/cloudmart/${s}=${ECR_REGISTRY}/cloudmart/${s}:${IMAGE_TAG}"
+          done
+
+      - name: Apply manifests
+        run: kubectl apply -k "${OVERLAY}"
+
+      - name: Wait for rollout (health-check gate)
+        run: |
+          for s in frontend product-service order-service user-service notification-service; do
+            kubectl rollout status deployment/$s -n "${NAMESPACE}" --timeout=300s
+          done
+
+      - name: Smoke test
+        run: |
+          kubectl run smoke-${GITHUB_RUN_ID} -n "${NAMESPACE}" \
+            --image=curlimages/curl:8.10.1 --restart=Never --rm -i --command -- \
+            sh -c 'set -e
+              for h in "product-service:8001" "order-service:8002" "user-service:8003" "frontend:80"; do
+                echo "checking http://$h/health"
+                curl -fsS "http://$h/health" >/dev/null
+              done
+              echo "smoke OK"'
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          for s in frontend product-service order-service user-service notification-service; do
+            kubectl rollout undo deployment/$s -n "${NAMESPACE}" || true
+          done
+
+  production:
+    name: Deploy to production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production   # manual approval gate — configure required reviewers in repo Settings > Environments
+    env:
+      NAMESPACE: cloudmart-prod
+      OVERLAY: k8s/overlays/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl & kustomize (pinned)
+        run: |
+          curl -sSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" -o kubectl
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o kustomize.tgz
+          tar xzf kustomize.tgz kustomize
+          sudo install -m 0755 kustomize /usr/local/bin/kustomize
+          kubectl version --client
+          kustomize version
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+
+      - name: Pin image tags
+        run: |
+          cd "${OVERLAY}"
+          for s in frontend product-service order-service user-service notification-service; do
+            kustomize edit set image "${ECR_REGISTRY}/cloudmart/${s}=${ECR_REGISTRY}/cloudmart/${s}:${IMAGE_TAG}"
+          done
+
+      - name: Apply manifests
+        run: kubectl apply -k "${OVERLAY}"
+
+      - name: Wait for rollout (health-check gate)
+        run: |
+          for s in frontend product-service order-service user-service notification-service; do
+            kubectl rollout status deployment/$s -n "${NAMESPACE}" --timeout=300s
+          done
+
+      - name: Smoke test
+        run: |
+          kubectl run smoke-${GITHUB_RUN_ID} -n "${NAMESPACE}" \
+            --image=curlimages/curl:8.10.1 --restart=Never --rm -i --command -- \
+            sh -c 'set -e
+              for h in "product-service:8001" "order-service:8002" "user-service:8003" "frontend:80"; do
+                echo "checking http://$h/health"
+                curl -fsS "http://$h/health" >/dev/null
+              done
+              echo "smoke OK"'
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          for s in frontend product-service order-service user-service notification-service; do
+            kubectl rollout undo deployment/$s -n "${NAMESPACE}" || true
+          done

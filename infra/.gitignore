@@ -1,0 +1,28 @@
+# Terraform working directories
+**/.terraform/*
+
+# State files — NEVER commit these (contain sensitive data)
+*.tfstate
+*.tfstate.backup
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Sensitive variable files — put secrets in Secrets Manager, not here
+*.tfvars.json
+secrets.tfvars
+
+# Override files (local development only)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc
+
+# OS files
+.DS_Store
+Thumbs.db

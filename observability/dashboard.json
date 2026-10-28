@@ -1,0 +1,27 @@
+{
+  "widgets": [
+    { "type": "text", "x": 0, "y": 0, "width": 24, "height": 2,
+      "properties": { "markdown": "# CloudMart - Observability (prod)\nRequest rate, error rate, queue depth, and database connections for the CloudMart platform on EKS Fargate." } },
+    { "type": "metric", "x": 0, "y": 2, "width": 12, "height": 6,
+      "properties": { "title": "Product-Service Request Rate (req/min)", "region": "us-east-1", "view": "timeSeries", "stat": "Sum", "period": 60,
+        "metrics": [ ["CloudMart/ProductService", "RequestCount"] ] } },
+    { "type": "metric", "x": 12, "y": 2, "width": 12, "height": 6,
+      "properties": { "title": "Product-Service Error Rate (%)", "region": "us-east-1", "view": "timeSeries", "period": 60,
+        "metrics": [
+          [{"expression": "100*errors/total", "label": "ErrorRate %", "id": "e1"}],
+          ["CloudMart/ProductService", "ErrorCount", {"id": "errors", "stat": "Sum", "visible": false}],
+          ["CloudMart/ProductService", "RequestCount", {"id": "total", "stat": "Sum", "visible": false}]
+        ],
+        "yAxis": {"left": {"min": 0}} } },
+    { "type": "metric", "x": 0, "y": 8, "width": 12, "height": 6,
+      "properties": { "title": "SQS Orders Queue Depth", "region": "us-east-1", "view": "timeSeries", "stat": "Maximum", "period": 60,
+        "metrics": [ ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "cloudmart-orders"] ] } },
+    { "type": "metric", "x": 12, "y": 8, "width": 12, "height": 6,
+      "properties": { "title": "RDS Database Connections", "region": "us-east-1", "view": "timeSeries", "stat": "Average", "period": 60,
+        "metrics": [ ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", "cloudmart-prod-postgres"] ] } },
+    { "type": "alarm", "x": 0, "y": 14, "width": 12, "height": 4,
+      "properties": { "title": "Error-Rate Alarm", "alarms": ["arn:aws:cloudwatch:us-east-1:AWS_ACCOUNT_ID:alarm:product-service-error-rate"] } },
+    { "type": "text", "x": 12, "y": 14, "width": 12, "height": 4,
+      "properties": { "markdown": "**CPU / memory note:** EKS on Fargate does not support CloudWatch Container Insights enhanced observability, so per-pod CPU/memory widgets are unavailable. Pod usage is seen via kubectl top and the Fargate CapacityProvisioned annotation (0.5 vCPU / 1 GB per pod)." } }
+  ]
+}

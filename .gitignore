@@ -1,0 +1,32 @@
+# Terraform working directories and plans
+**/.terraform/*
+*.tfplan
+tfplan
+
+# State files: never commit (contain secrets and resource IDs)
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Local-only variable files and overrides
+*.auto.tfvars
+secrets.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration
+.terraformrc
+terraform.rc
+
+# kubeconfig / editor / OS
+kubeconfig*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

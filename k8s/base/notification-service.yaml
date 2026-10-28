@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      serviceAccountName: notification-service
+      containers:
+      - name: notification-service
+        image: AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/cloudmart/notification-service:latest
+        ports:
+        - containerPort: 8004
+        envFrom:
+        - configMapRef:
+            name: cloudmart-config
+        resources:
+          requests:
+            cpu: "256m"
+            memory: "512Mi"
+          limits:
+            cpu: "256m"
+            memory: "512Mi"
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8004
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 30

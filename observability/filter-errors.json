@@ -1,0 +1,8 @@
+{
+  "logGroupName": "/cloudmart/product-service",
+  "filterName": "product-requests-errors",
+  "filterPattern": "{ ($.log = \"*REQUEST method=*status=4*\") || ($.log = \"*REQUEST method=*status=5*\") }",
+  "metricTransformations": [
+    { "metricName": "ErrorCount", "metricNamespace": "CloudMart/ProductService", "metricValue": "1", "defaultValue": 0 }
+  ]
+}

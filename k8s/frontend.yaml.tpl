@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      serviceAccountName: frontend
+      containers:
+        - name: frontend
+          image: AWS_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/cloudmart/frontend:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "256m"
+              memory: "512Mi"
+            limits:
+              cpu: "256m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cloudmart-ingress
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+%{ if load_balancer_name != "" ~}
+    alb.ingress.kubernetes.io/load-balancer-name: "${load_balancer_name}"
+%{ endif ~}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: "${acm_certificate_arn}"
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/wafv2-acl-arn: "${waf_acl_arn}"
+spec:
+  ingressClassName: alb
+  rules:
+%{ if frontend_host != "" ~}
+    - host: ${frontend_host}
+      http:
+%{ else ~}
+    - http:
+%{ endif ~}
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend

@@ -1,0 +1,5 @@
+[
+  {"Id":"errors","MetricStat":{"Metric":{"Namespace":"CloudMart/ProductService","MetricName":"ErrorCount"},"Period":60,"Stat":"Sum"},"ReturnData":false},
+  {"Id":"total","MetricStat":{"Metric":{"Namespace":"CloudMart/ProductService","MetricName":"RequestCount"},"Period":60,"Stat":"Sum"},"ReturnData":false},
+  {"Id":"errorRate","Expression":"100*errors/total","Label":"ErrorRatePct","ReturnData":true}
+]
