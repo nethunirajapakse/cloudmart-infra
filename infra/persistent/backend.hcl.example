@@ -1,0 +1,2 @@
+# Copy to backend.hcl (gitignored) and fill in your account ID.
+bucket = "cloudmart-tfstate-<YOUR_ACCOUNT_ID>-us-east-1"
