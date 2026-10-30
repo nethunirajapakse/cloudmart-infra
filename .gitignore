@@ -1,0 +1,12 @@
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+*.auto.tfvars
+secrets.tfvars
+override.tf
+.DS_Store
+.vscode/
+.idea/
