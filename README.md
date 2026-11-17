@@ -1,12 +1,10 @@
 # cloudmart-infra
 
-Infrastructure and deployment configuration for **CloudMart**, a five-service e-commerce platform running on Amazon EKS. Terraform builds the AWS environment, Kubernetes manifests describe the workloads, and GitHub Actions deploys them. The application code lives in a separate repo, `cloudmart-app-source`.
-
-CloudMart started as the IS 4630 Cloud Infrastructure Management group project at the University of Moratuwa. This repo is my own copy, split from the app code so I can rebuild and extend it on my own AWS account.
+Infrastructure and deployment configuration for **CloudMart**, a five-service e-commerce platform running on Amazon EKS. Terraform builds the AWS environment, Kubernetes manifests describe the workloads, and GitHub Actions deploys them. Application code and Dockerfiles live in a separate repo, `cloudmart-app-source`.
 
 ## What it provisions
 
-- **Network and compute:** VPC and an EKS cluster (Fargate profiles)
+- **Network and compute:** VPC and an EKS cluster
 - **Data and messaging:** RDS, DynamoDB, SQS
 - **Security:** KMS, WAF, GuardDuty, IAM roles for service accounts (IRSA)
 - **Operations:** CloudWatch dashboards, metric filters and alarms, AWS Budgets
@@ -68,17 +66,10 @@ kubectl get pods -n cloudmart-prod
 
 Architecture decisions are recorded in `docs/adr/` (node instance type, user-service database, deployment strategy). Recovery targets and restore steps are in `docs/disaster-recovery-plan.md`.
 
-<!--
-## My contribution
-
-The Terraform modules, manifests, ADRs and DR plan began as group work. I owned the **CI/CD pipeline** (OIDC authentication, Trivy and kubeconform scanning, rollout gating and rollback) and the **observability setup** (CloudWatch metric filters and dashboards). Commits after the split are mine alone.
-
--->
-
 ## Status and roadmap
 
-- `terraform validate` and `kubeconform` pass in CI. The Terraform has not yet been applied to my own account.
+- `terraform validate` and `kubeconform` pass in CI. The Terraform has not yet been applied to my AWS account.
 - Next: move from Fargate to an EKS managed node group on EC2, as discussed in ADR-001.
 - Three `local-exec` steps in `prod/main.tf` need PowerShell, so `apply` currently works only on Windows or with PowerShell installed.
-- The old `kubectl` backup exports were removed and need regenerating from the new cluster.
+- Cluster backup exports need regenerating from the new cluster.
 - The app repo does not yet trigger `cd.yml` automatically, so run it manually with an `image_tag`.
