@@ -1,102 +1,81 @@
 # cloudmart-infra
 
-Infrastructure and deployment configuration for CloudMart, a five-service e-commerce platform that runs on Amazon EKS. This repo holds everything needed to create the AWS environment and deploy the services onto it. The application code and Dockerfiles live in a separate repo, `cloudmart-app-source`.
+Infrastructure and deployment configuration for **CloudMart**, a five-service e-commerce platform running on Amazon EKS. Terraform builds the AWS environment, Kubernetes manifests describe the workloads, and GitHub Actions deploys them. The application code lives in a separate repo, `cloudmart-app-source`.
 
-CloudMart was the IS 4630 Cloud Infrastructure Management assignment at the University of Moratuwa. The first version of this infrastructure came out of the group project. This repo is my own copy of it, split away from the application code so I can rebuild and extend it on my own AWS account.
+CloudMart started as the IS 4630 Cloud Infrastructure Management group project at the University of Moratuwa. This repo is my own copy, split from the app code so I can rebuild and extend it on my own AWS account.
 
-## Why two repos
+## What it provisions
+
+- **Network and compute:** VPC and an EKS cluster (Fargate profiles)
+- **Data and messaging:** RDS, DynamoDB, SQS
+- **Security:** KMS, WAF, GuardDuty, IAM roles for service accounts (IRSA)
+- **Operations:** CloudWatch dashboards, metric filters and alarms, AWS Budgets
+- **Delivery:** GitHub Actions with OIDC login to AWS, so no long-lived keys are stored
+
+## Architecture
+
+![Architecture diagram](docs/architecture.png)
+
+*Diagram to be added.*
+
+## Two repos, two pipelines
 
 | Repo | Contains | Pipeline |
 |------|----------|----------|
-| `cloudmart-app-source` | `services/*` source code, Dockerfiles, docker-compose | Test, build, Trivy scan, push image to ECR |
-| `cloudmart-infra` (this repo) | Terraform, Kubernetes manifests, IAM policies, observability config, ADRs, DR plan | Validate Terraform and manifests, deploy to EKS |
+| `cloudmart-app-source` | Service code, Dockerfiles | Test, build, Trivy scan, push to ECR |
+| `cloudmart-infra` (this repo) | Terraform, Kubernetes manifests, IAM, observability, docs | Validate, deploy to EKS |
 
-Application changes and infrastructure changes now have separate histories, reviews and pipelines. The app repo publishes images to ECR tagged with the commit SHA. This repo deploys a chosen tag with the `image_tag` input of the CD workflow.
+The app repo publishes images tagged with the commit SHA. This repo deploys a chosen tag through the `image_tag` input of the CD workflow.
 
-## Layout
+## Repository layout
 
 ```
-infra/
-  bootstrap/            S3 bucket + DynamoDB table for Terraform remote state (run once, local state)
-  modules/              networking, security, database, messaging, ecr, eks
-  environments/
-    prod/               main entry point; creates the full platform
-    staging/            optional separate state for staging metadata
-k8s/
-  base/                 Deployments, Services, Ingress, HPA/PDB, NetworkPolicies, ExternalSecret
-  overlays/prod|staging Kustomize overlays (staging runs 1 replica per service)
-  observability/        Fluent Bit / CloudWatch logging config
-  rbac/                 RBAC for the External Secrets Operator
-  *.yaml.tpl            Templates Terraform renders into k8s/base/
-iam/                    GitHub OIDC trust policy, deploy role permissions, logging policy
-observability/          CloudWatch dashboard, metric filters, alarm metric definitions
-docs/
-  adr/                  Architecture Decision Records
-  disaster-recovery-plan.md
-  dr/                   Test data used for the point-in-time restore demo
-.github/workflows/
-  infra-ci.yml          terraform fmt/validate, kustomize build + kubeconform
-  cd.yml                OIDC login, kubectl apply -k, rollout gate, smoke test, rollback
-```
-
-## Placeholders to fill in before first use
-
-The group project's AWS account ID, certificate and WAF ARNs, RDS endpoint and email address were removed. Replace these before running anything:
-
-| Placeholder | Where | Value |
-|-------------|-------|-------|
-| `AWS_ACCOUNT_ID` | `infra/environments/*/backend.tf`, `k8s/base/*.yaml`, `iam/*.json`, `observability/dashboard.json` | Your 12-digit account ID |
-| `GITHUB_OWNER` | `iam/deploy-trust.json` | Your GitHub username |
-| `you@example.com`, `your-team-id` | `infra/environments/*/terraform.tfvars`, `k8s/base/configmap.yaml` | Used for the `Owner` and `Team` cost-allocation tags and the SES sender |
-| `REPLACE_WITH_ACM_CERTIFICATE_ARN`, `REPLACE_WITH_WAF_ACL_ARN`, `REPLACE_WITH_RDS_ENDPOINT` | `k8s/base/frontend.yaml`, `k8s/base/configmap.yaml` | Rewritten by `terraform apply` from `k8s/*.tpl` using the real resource outputs |
-
-The GitHub Actions workflows read the account ID from a repository variable named `AWS_ACCOUNT_ID` (Settings > Secrets and variables > Actions > Variables).
-
-## Deploying
-
-Prerequisites: AWS CLI, Terraform 1.5 or newer, kubectl, Helm.
-
-```bash
-# 1. One-time remote state backend
-cd infra/bootstrap
-terraform init && terraform apply -var account_id=<your-account-id>
-
-# 2. Platform: VPC, EKS, RDS, DynamoDB, SQS, KMS, WAF, GuardDuty, budgets, IRSA roles
-cd ../environments/prod
-terraform init && terraform plan && terraform apply
-
-# 3. Connect and check
-aws eks update-kubeconfig --name cloudmart-prod --region us-east-1
-kubectl get pods -n cloudmart-prod
-
-# 4. Staging (shares the prod cluster, separate namespace)
-kubectl apply -k k8s/overlays/staging
+infra/          Terraform: remote-state bootstrap, reusable modules, prod and staging environments
+k8s/            Kustomize base and overlays, network policies, logging and RBAC config
+iam/            GitHub OIDC trust policy and deploy role permissions
+observability/  CloudWatch dashboard and metric definitions
+docs/           Architecture decision records and disaster recovery plan
+.github/        CI and CD workflows
 ```
 
 ## CI/CD
 
-| Branch | Environment | What happens |
-|--------|-------------|--------------|
-| `feature/*` | none | `infra-ci.yml` validates only |
-| `develop` | `cloudmart-staging` | `cd.yml` applies `k8s/overlays/staging` |
-| `main` | `cloudmart-prod` | `cd.yml` applies `k8s/overlays/prod` after approval on the `production` GitHub Environment |
+| Branch | Environment | Result |
+|--------|-------------|--------|
+| `feature/*` | None | Terraform and manifests are validated |
+| `develop` | Staging | Deployed automatically |
+| `main` | Production | Deployed after manual approval |
 
-Both deploy jobs wait for every rollout, run an in-cluster smoke test against each `/health` endpoint, and run `kubectl rollout undo` if anything fails. Tools are installed as pinned release binaries rather than third-party Actions.
+Each deploy waits for rollouts to finish, smoke-tests every `/health` endpoint, and runs `kubectl rollout undo` if anything fails. Manifests are checked with kubeconform, and deploy tools are installed as pinned binaries.
 
-The deploy role is assumed through GitHub OIDC. `iam/deploy-trust.json` allows the `develop` branch and the `production` environment. A job that uses `environment: production` presents an environment-based subject claim instead of a branch ref, so the trust policy has to list the environment.
+## Getting started
 
-## Status and known gaps
+Requires the AWS CLI, Terraform 1.5+, kubectl and Helm. Replace the placeholders (`AWS_ACCOUNT_ID`, `GITHUB_OWNER`, contact email) in the Terraform backend, IAM and manifest files first.
 
-- The Terraform is still the group's design (EKS on Fargate profiles). Moving to an EKS managed node group on EC2, as ADR-001 discusses, is the next planned change.
-- Three `local-exec` provisioners in `infra/environments/prod/main.tf` use PowerShell as the interpreter, so `terraform apply` currently only works from a Windows machine or one with PowerShell installed.
-- `terraform validate` and `kubeconform` run in CI. The Terraform has not been applied to my account yet.
-- The group's `docs/k8s-backup/` exports were left out because they were raw `kubectl get -o yaml` dumps with account IDs embedded. They should be regenerated from the new cluster.
-- Cross-repo trigger from the app repo to `cd.yml` is not wired up. For now, run the workflow manually with an `image_tag`.
+```bash
+# 1. Remote state backend (once)
+cd infra/bootstrap && terraform init && terraform apply -var account_id=<account-id>
 
-## Decisions
+# 2. Platform
+cd ../environments/prod && terraform init && terraform apply
 
-See `docs/adr/` for the node instance type, user-service database and deployment strategy decisions, and `docs/disaster-recovery-plan.md` for RTO/RPO targets and restore procedures.
+# 3. Connect to the cluster
+aws eks update-kubeconfig --name cloudmart-prod --region us-east-1
+kubectl get pods -n cloudmart-prod
+```
 
-## Provenance
+## Design decisions
 
-The Terraform modules, Kubernetes manifests, ADRs and DR plan started as group work for IS 4630. The CI/CD pipeline and observability setup (OIDC authentication, Trivy and kubeconform scanning, CloudWatch metric filters and dashboards) are the parts I owned in that group. Changes made in this repo after the split are mine alone and are visible in the commit history.
+Architecture decisions are recorded in `docs/adr/` (node instance type, user-service database, deployment strategy). Recovery targets and restore steps are in `docs/disaster-recovery-plan.md`.
+
+## My contribution
+
+The Terraform modules, manifests, ADRs and DR plan began as group work. I owned the **CI/CD pipeline** (OIDC authentication, Trivy and kubeconform scanning, rollout gating and rollback) and the **observability setup** (CloudWatch metric filters and dashboards). Commits after the split are mine alone.
+
+## Status and roadmap
+
+- `terraform validate` and `kubeconform` pass in CI. The Terraform has not yet been applied to my own account.
+- Next: move from Fargate to an EKS managed node group on EC2, as discussed in ADR-001.
+- Three `local-exec` steps in `prod/main.tf` need PowerShell, so `apply` currently works only on Windows or with PowerShell installed.
+- The old `kubectl` backup exports were removed and need regenerating from the new cluster.
+- The app repo does not yet trigger `cd.yml` automatically, so run it manually with an `image_tag`.
