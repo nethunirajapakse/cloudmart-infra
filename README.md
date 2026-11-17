@@ -68,9 +68,12 @@ kubectl get pods -n cloudmart-prod
 
 Architecture decisions are recorded in `docs/adr/` (node instance type, user-service database, deployment strategy). Recovery targets and restore steps are in `docs/disaster-recovery-plan.md`.
 
+<!--
 ## My contribution
 
 The Terraform modules, manifests, ADRs and DR plan began as group work. I owned the **CI/CD pipeline** (OIDC authentication, Trivy and kubeconform scanning, rollout gating and rollback) and the **observability setup** (CloudWatch metric filters and dashboards). Commits after the split are mine alone.
+
+-->
 
 ## Status and roadmap
 
